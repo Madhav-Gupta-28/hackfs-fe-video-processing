@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video to Frames Conversion</title>
+</head>
+<body>
+    <input type="file" id="videoInput" accept="video/*">
+    <button onclick="convertVideoToFrames()">Convert Video to Frames</button>
+    <div id="previewContainer"></div>
+    <video id="videoElement" style="display:none;"></video>
+    <canvas id="canvasElement" style="display:none;"></canvas>
+
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.1/dist/tesseract.min.js"></script>
+
+    <script>
+        let frames = [];
+        const videoElement = document.getElementById('videoElement');
+        const canvasElement = document.getElementById('canvasElement');
+        const ctx = canvasElement.getContext('2d');
+
+        async function convertVideoToFrames() {
+            const videoFile = document.getElementById('videoInput').files[0];
+            if (!videoFile) {
+                alert('Please select a video file.');
+                return;
+            }
+
+            const url = URL.createObjectURL(videoFile);
+            videoElement.src = url;
+
+            videoElement.onloadedmetadata = () => {
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+
+                videoElement.play();
+                extractFrames();
+            };
+        }
+
+        function extractFrames() {
+            videoElement.pause();
+            ctx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+
+            const frameDataUrl = canvasElement.toDataURL('image/png');
+            frames.push(frameDataUrl);
+
+            extractTextFromFrame(frameDataUrl, frames.length - 1);
+
+            if (videoElement.currentTime < videoElement.duration) {
+                videoElement.currentTime += 1; // Extract frame every second
+                videoElement.play();
+                setTimeout(extractFrames, 1000);
+            } else {
+                displayFrames();
+            }
+        }
+
+        async function extractTextFromFrame(frameDataUrl, frameIndex) {
+            const img = new Image();
+            img.src = frameDataUrl;
+            await new Promise(resolve => img.onload = resolve);
+
+            const text = await Tesseract.recognize(
+                img,
+                'eng',
+                {
+                    logger: m => console.log(m)
+                }
+            );
+
+            console.log(`Text extracted from frame ${frameIndex + 1}:`, text.data.text);
+            text.data.words.forEach(word => {
+                console.log(`Word: ${word.text}, Bounding Box: ${JSON.stringify(word.bbox)}`);
+            });
+
+            return text.data;
+        }
+
+        function displayFrames() {
+            const previewContainer = document.getElementById('previewContainer');
+            previewContainer.innerHTML = ''; // Clear previous frames
+
+            frames.forEach(frame => {
+                const img = document.createElement('img');
+                img.src = frame;
+                previewContainer.appendChild(img);
+            });
+        }
+    </script>
+</body>
+</html>
