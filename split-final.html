@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video to Frames Conversion</title>
+    <script src='./bundle.js'></script>
+</head>
+<body>
+    <input type="file" id="videoInput" accept="video/*">
+    <button onclick="convertVideoToFrames()">Convert Video to Frames</button>
+    <button onclick="recombineFrames()">Recombine Frames</button>
+    <div id="previewContainer"></div>
+    <video id="videoElement" style="display:none;"></video>
+    <canvas id="canvasElement" style="display:none;"></canvas>
+    <video id="resultVideo" controls></video>
+
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.1/dist/tesseract.min.js"></script>
+    <script>
+        let frames = [];
+        const videoElement = document.getElementById('videoElement');
+        const canvasElement = document.getElementById('canvasElement');
+        const ctx = canvasElement.getContext('2d');
+        let nlp;
+
+        async function initializeNLP() {
+            const { containerBootstrap, Nlp, LangEn } = window.nlpjs;
+            const container = await containerBootstrap();
+            container.use(Nlp);
+            container.use(LangEn);
+            nlp = container.get('nlp');
+            nlp.settings.autoSave = false;
+            nlp.addLanguage('en');
+
+            // Add named entities for extraction
+            nlp.addNamedEntityText('email', 'email', ['en'], (context) => {
+                return context.entities.filter(entity => entity.entity === 'email');
+            });
+
+            nlp.addNamedEntityText('ip', 'ip', ['en'], (context) => {
+                return context.entities.filter(entity => entity.entity === 'ip');
+            });
+
+            nlp.addNamedEntityText('hashtag', 'hashtag', ['en'], (context) => {
+                return context.entities.filter(entity => entity.entity === 'hashtag');
+            });
+
+            nlp.addNamedEntityText('phonenumber', 'phonenumber', ['en'], (context) => {
+                return context.entities.filter(entity => entity.entity === 'phonenumber');
+            });
+
+            nlp.addNamedEntityText('url', 'url', ['en'], (context) => {
+                return context.entities.filter(entity => entity.entity === 'url');
+            });
+
+            nlp.addNamedEntityText('number', 'number', ['en'], (context) => {
+                return context.entities.filter(entity => entity.entity === 'number');
+            });
+
+            // Add more entity types as needed
+
+            await nlp.train();
+        }
+
+        async function convertVideoToFrames() {
+            const videoFile = document.getElementById('videoInput').files[0];
+            if (!videoFile) {
+                alert('Please select a video file.');
+                return;
+            }
+
+            const url = URL.createObjectURL(videoFile);
+            videoElement.src = url;
+
+            videoElement.onloadedmetadata = () => {
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+
+                videoElement.play();
+                extractFrames();
+            };
+        }
+
+        function extractFrames() {
+            videoElement.pause();
+            ctx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+
+            const frameDataUrl = canvasElement.toDataURL('image/png');
+            frames.push(frameDataUrl);
+
+            extractTextAndEntities(frameDataUrl, frames.length - 1);
+
+            if (videoElement.currentTime < videoElement.duration) {
+                videoElement.currentTime += 1; // Extract frame every second
+                videoElement.play();
+                setTimeout(extractFrames, 1000);
+            } else {
+                displayFrames();
+            }
+        }
+
+        async function extractTextAndEntities(frameDataUrl, frameIndex) {
+            const img = new Image();
+            img.src = frameDataUrl;
+            await new Promise(resolve => img.onload = resolve);
+
+            const text = await Tesseract.recognize(
+                img,
+                'eng',
+                {
+                    logger: m => console.log(m)
+                }
+            );
+
+            console.log(`Text extracted from frame ${frameIndex + 1}:`, text.data.text);
+
+            const response = await nlp.process('en', text.data.text);
+            console.log(`Entities extracted from frame ${frameIndex + 1}:`, response.entities);
+
+            let modifiedText = text.data.text;
+            response.entities.forEach(entity => {
+                const placeholder = getPlaceholderForEntity(entity.entity);
+                modifiedText = modifiedText.replace(entity.sourceText, placeholder);
+            });
+
+            drawModifiedTextBackToFrame(modifiedText, frameDataUrl);
+        }
+
+        function getPlaceholderForEntity(entityType) {
+            switch (entityType) {
+                case 'phonenumber':
+                    return 'PHONE_NUMBER';
+                case 'email':
+                    return 'EMAIL';
+                case 'url':
+                    return 'URL';
+                // Add more cases for other entity types as needed
+                default:
+                    return 'ENTITY';
+            }
+        }
+
+        function drawModifiedTextBackToFrame(modifiedText, originalFrameUrl) {
+            const img = new Image();
+            img.src = originalFrameUrl;
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0, canvasElement.width, canvasElement.height);
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+                ctx.fillStyle = 'black';
+                ctx.font = '16px Arial';
+                const lines = modifiedText.split('\n');
+                lines.forEach((line, index) => {
+                    ctx.fillText(line, 10, 50 + index * 20); // Adjust coordinates as needed
+                });
+
+                frames[frames.length - 1] = canvasElement.toDataURL('image/png');
+            };
+        }
+
+        function displayFrames() {
+            const previewContainer = document.getElementById('previewContainer');
+            previewContainer.innerHTML = ''; // Clear previous frames
+
+            frames.forEach(frame => {
+                const img = document.createElement('img');
+                img.src = frame;
+                previewContainer.appendChild(img);
+            });
+        }
+
+        async function recombineFrames() {
+            const stream = canvasElement.captureStream();
+            const recorder = new MediaRecorder(stream);
+            const chunks = [];
+
+            recorder.ondataavailable = (e) => chunks.push(e.data);
+            recorder.onstop = (e) => {
+                const blob = new Blob(chunks, { type: 'video/mp4' });
+                const url = URL.createObjectURL(blob);
+                const resultVideo = document.getElementById('resultVideo');
+                resultVideo.src = url;
+            };
+
+            recorder.start();
+            let frameIndex = 0;
+
+            function drawFrame() {
+                if (frameIndex < frames.length) {
+                    const img = new Image();
+                    img.src = frames[frameIndex];
+                    img.onload = () => {
+                        ctx.drawImage(img, 0, 0, canvasElement.width, canvasElement.height);
+                        console.log(`Drawing frame ${frameIndex + 1}`);
+                        frameIndex++;
+                        setTimeout(drawFrame, 1000 / 30); // Adjust frame rate as needed (30 FPS)
+                    };
+                } else {
+                    recorder.stop();
+                }
+            }
+
+            drawFrame();
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeNLP();
+        });
+    </script>
+</body>
+</html>
