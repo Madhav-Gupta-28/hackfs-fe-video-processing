@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video to Frames Conversion</title>
+</head>
+<body>
+    <input type="file" id="videoInput" accept="video/*">
+    <button onclick="convertVideoToFrames()">Convert Video to Frames</button>
+    <button onclick="recombineFrames()">Recombine Frames</button>
+    <div id="previewContainer"></div>
+    <video id="videoElement" style="display:none;"></video>
+    <canvas id="canvasElement" style="display:none;"></canvas>
+    <video id="resultVideo" controls></video>
+
+    <script>
+        let frames = [];
+        const videoElement = document.getElementById('videoElement');
+        const canvasElement = document.getElementById('canvasElement');
+        const ctx = canvasElement.getContext('2d');
+
+        async function convertVideoToFrames() {
+            const videoFile = document.getElementById('videoInput').files[0];
+            if (!videoFile) {
+                alert('Please select a video file.');
+                return;
+            }
+
+            const url = URL.createObjectURL(videoFile);
+            videoElement.src = url;
+
+            videoElement.onloadedmetadata = () => {
+                canvasElement.width = videoElement.videoWidth;
+                canvasElement.height = videoElement.videoHeight;
+
+                videoElement.play();
+                extractFrames();
+            };
+        }
+
+        function extractFrames() {
+            videoElement.pause();
+            ctx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+
+            // Add a red rectangle to a random location on each frame
+            const rectWidth = 50;
+            const rectHeight = 50;
+            const x = Math.random() * (canvasElement.width - rectWidth);
+            const y = Math.random() * (canvasElement.height - rectHeight);
+            ctx.fillStyle = 'red';
+            ctx.fillRect(x, y, rectWidth, rectHeight);
+
+            frames.push(canvasElement.toDataURL('image/png'));
+            console.log(`Processed frame at time ${videoElement.currentTime}s`);
+
+            if (videoElement.currentTime < videoElement.duration) {
+                videoElement.currentTime += 1; // Extract frame every second
+                videoElement.play();
+                setTimeout(extractFrames, 1000);
+            } else {
+                displayFrames();
+            }
+        }
+
+        function displayFrames() {
+            const previewContainer = document.getElementById('previewContainer');
+            previewContainer.innerHTML = ''; // Clear previous frames
+
+            frames.forEach(frame => {
+                const img = document.createElement('img');
+                img.src = frame;
+                previewContainer.appendChild(img);
+            });
+        }
+
+        async function recombineFrames() {
+            const stream = canvasElement.captureStream();
+            const recorder = new MediaRecorder(stream);
+            const chunks = [];
+
+            recorder.ondataavailable = (e) => chunks.push(e.data);
+            recorder.onstop = (e) => {
+                const blob = new Blob(chunks, { type: 'video/mp4' });
+                const url = URL.createObjectURL(blob);
+                const resultVideo = document.getElementById('resultVideo');
+                resultVideo.src = url;
+            };
+
+            recorder.start();
+            let frameIndex = 0;
+
+            function drawFrame() {
+                if (frameIndex < frames.length) {
+                    const img = new Image();
+                    img.src = frames[frameIndex];
+                    img.onload = () => {
+                        ctx.drawImage(img, 0, 0, canvasElement.width, canvasElement.height);
+                        console.log(`Drawing frame ${frameIndex + 1}`);
+                        frameIndex++;
+                        setTimeout(drawFrame, 1000); // Draw each frame every second
+                    };
+                } else {
+                    recorder.stop();
+                }
+            }
+
+            drawFrame();
+        }
+    </script>
+</body>
+</html>
