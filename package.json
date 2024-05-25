@@ -1,0 +1,24 @@
+{
+  "name": "hackfs",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "browserdist": "browserify ./index.js | terser --compress --mangle > ./bundle.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@nlpjs/core": "^4.26.1",
+    "@nlpjs/lang-en-min": "^4.26.1",
+    "@nlpjs/nlp": "^4.27.0",
+    "http-server": "^14.1.1"
+  },
+  
+  "devDependencies": {
+    "browserify": "^17.0.0",
+    "terser": "^5.31.0"
+  }
+}
